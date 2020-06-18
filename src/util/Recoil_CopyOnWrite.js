@@ -40,7 +40,7 @@ function mapByUpdatingInMap<K, V>(
   k: K,
   updater: (V | void) => V,
 ): Map<K, V> {
-  const next = new Map(map);
+  const next = map;
   next.set(k, updater(next.get(k)));
   return next;
 }

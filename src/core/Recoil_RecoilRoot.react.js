@@ -107,6 +107,9 @@ function Batcher(props: {setNotifyBatcherOfChange: (() => void) => void}) {
 
       // nextTree is now committed -- note that copying and reset occurs when
       // a transaction begins, in startNextTreeIfNeeded:
+      nextTree.nodeToComponentSubscriptions = new Map(
+        nextTree.nodeToComponentSubscriptions,
+      );
       storeState.currentTree = nextTree;
       storeState.nextTree = null;
     });
