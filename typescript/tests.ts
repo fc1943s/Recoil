@@ -22,10 +22,10 @@ import {
   waitForNone,
   waitForAny,
   waitForAll,
-  useRecoilTransactionObserver,
+  useRecoilTransactionObserver_UNSTABLE,
   useGotoRecoilSnapshot,
   Snapshot,
-  useRecoilSnapshotAndSubscribe,
+  useRecoilSnapshot,
 } from 'recoil';
 
 // DefaultValue
@@ -155,10 +155,10 @@ useRecoilCallback(({ snapshot, set, reset, gotoSnapshot }) => async () => {
 });
 
 /**
- * useRecoilTransactionObserver()
+ * useRecoilTransactionObserver_UNSTABLE()
  */
 {
-  useRecoilTransactionObserver(
+  useRecoilTransactionObserver_UNSTABLE(
     ({snapshot, previousSnapshot}) => {
       snapshot.getLoadable(myAtom);
       snapshot.getPromise(mySelector1);
@@ -184,10 +184,10 @@ useRecoilCallback(({ snapshot, set, reset, gotoSnapshot }) => async () => {
 }
 
 /**
- * useRecoilSnapshotAndSubscribe()
+ * useRecoilSnapshot()
  */
 {
-  useRecoilSnapshotAndSubscribe(); // $ExpectType Snapshot
+  useRecoilSnapshot(); // $ExpectType Snapshot
 }
 
 // Other
