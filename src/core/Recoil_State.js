@@ -14,7 +14,6 @@ import type {Loadable} from '../adt/Recoil_Loadable';
 
 export type NodeKey = string;
 
-// TODO We could just store T instead of a Loadable<T> in atomValues
 // flowlint-next-line unclear-type:off
 export type AtomValues = Map<NodeKey, Loadable<any>>;
 
@@ -23,11 +22,15 @@ type ComponentCallback = TreeState => void;
 export type TreeState = $ReadOnly<{
   // Information about the TreeState itself:
   transactionMetadata: {...},
-  dirtyAtoms: Set<NodeKey>,
 
   // ATOMS
+  knownAtoms: Set<NodeKey>,
+  dirtyAtoms: Set<NodeKey>,
   atomValues: AtomValues,
   nonvalidatedAtoms: Map<NodeKey, mixed>,
+
+  // SELECTORS
+  knownSelectors: Set<NodeKey>,
 
   // NODE GRAPH
   // Upstream Node dependencies
@@ -57,6 +60,7 @@ export type StoreState = {
 
   // For observing transactions:
   +transactionSubscriptions: Map<number, (Store) => void>,
+  +nodeTransactionSubscriptions: Map<NodeKey, Array<(Store) => void>>,
 
   // Callbacks to render external components that are subscribed to nodes
   // These are executed at the end of the transaction or asynchronously.
@@ -69,7 +73,7 @@ export type StoreState = {
 export type Store = $ReadOnly<{
   getState: () => StoreState,
   replaceState: ((TreeState) => TreeState) => void,
-  subscribeToTransactions: ((Store) => void) => {release: () => void},
+  subscribeToTransactions: ((Store) => void, ?NodeKey) => {release: () => void},
   addTransactionMetadata: ({...}) => void,
   fireNodeSubscriptions: (
     updatedNodes: $ReadOnlySet<NodeKey>,
@@ -84,9 +88,11 @@ export type StoreRef = {
 function makeEmptyTreeState(): TreeState {
   return {
     transactionMetadata: {},
+    knownAtoms: new Set(),
+    dirtyAtoms: new Set(),
     atomValues: new Map(),
     nonvalidatedAtoms: new Map(),
-    dirtyAtoms: new Set(),
+    knownSelectors: new Set(),
     nodeDeps: new Map(),
     nodeToNodeSubscriptions: new Map(),
     nodeToComponentSubscriptions: new Map(),
@@ -98,6 +104,7 @@ function makeStoreState(treeState: TreeState): StoreState {
     currentTree: treeState,
     nextTree: null,
     transactionSubscriptions: new Map(),
+    nodeTransactionSubscriptions: new Map(),
     queuedComponentCallbacks: [],
     suspendedComponentResolvers: new Set(),
   };
