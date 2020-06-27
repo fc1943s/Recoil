@@ -72,6 +72,7 @@ const {
   registerNode,
 } = require('../core/Recoil_Node');
 const {isRecoilValue} = require('../core/Recoil_RecoilValue');
+const {setRecoilValue} = require('../core/Recoil_RecoilValueInterface');
 const {cloneSnapshot} = require('../core/Recoil_Snapshot');
 const {
   mapByDeletingFromMap,
@@ -80,7 +81,6 @@ const {
 } = require('../util/Recoil_CopyOnWrite');
 const deepFreezeValue = require('../util/Recoil_deepFreezeValue');
 const expectationViolation = require('../util/Recoil_expectationViolation');
-const invariant = require('../util/Recoil_invariant');
 const isPromise = require('../util/Recoil_isPromise');
 const nullthrows = require('../util/Recoil_nullthrows');
 const selector = require('./Recoil_selector');
@@ -139,10 +139,11 @@ function baseAtom<T>(options: BaseAtomOptions<T>): RecoilState<T> {
     store: Store,
     initState: TreeState,
     trigger: 'set' | 'get',
-  ): TreeState {
-    if (initState.knownAtoms.has(key)) {
-      return initState;
+  ) {
+    if (store.getState().knownAtoms.has(key)) {
+      return;
     }
+    store.getState().knownAtoms.add(key);
 
     // Run Atom Effects
     let initValue: T | DefaultValue = DEFAULT_VALUE;
@@ -170,30 +171,7 @@ function baseAtom<T>(options: BaseAtomOptions<T>): RecoilState<T> {
                 (valueOrUpdater: any)(currentValue)
               : valueOrUpdater;
         } else {
-          store.replaceState(asyncState => {
-            let newState = asyncState;
-            const newValue: T | DefaultValue =
-              typeof valueOrUpdater !== 'function'
-                ? valueOrUpdater
-                : (() => {
-                    const [_, loadable] = myGet(store, asyncState);
-                    invariant(
-                      loadable.state === 'hasValue',
-                      "Recoil doesn't support async Atoms yet",
-                    );
-                    // cast to any because we can't restrict type from being a function itself without losing support for opaque types
-                    // flowlint-next-line unclear-type:off
-                    return (valueOrUpdater: any)(loadable.contents);
-                  })();
-            const [nextState, writtenNodes] = mySet(
-              store,
-              asyncState,
-              newValue,
-            );
-            newState = nextState;
-            store.fireNodeSubscriptions(writtenNodes, 'enqueue');
-            return newState;
-          });
+          setRecoilValue(store, node, valueOrUpdater);
         }
       }
       const resetSelf = () => setSelf(DEFAULT_VALUE);
@@ -220,21 +198,16 @@ function baseAtom<T>(options: BaseAtomOptions<T>): RecoilState<T> {
       duringInit = false;
     }
 
-    return {
-      ...initState,
-      knownAtoms: setByAddingToSet(initState.knownAtoms, key),
-      atomValues: !(initValue instanceof DefaultValue)
-        ? mapBySettingInMap(
-            initState.atomValues,
-            key,
-            loadableWithValue(initValue),
-          )
-        : initState.atomValues,
-    };
+    // Mutate initial state in place since we know there are no other subscribers
+    // since we are the ones initializing on first use.
+
+    if (!(initValue instanceof DefaultValue)) {
+      initState.atomValues.set(key, loadableWithValue(initValue));
+    }
   }
 
-  function myGet(store: Store, initState: TreeState): [TreeState, Loadable<T>] {
-    const state = initAtom(store, initState, 'get');
+  function myGet(store: Store, state: TreeState): [TreeState, Loadable<T>] {
+    initAtom(store, state, 'get');
 
     if (state.atomValues.has(key)) {
       // atom value is stored in state
@@ -285,10 +258,10 @@ function baseAtom<T>(options: BaseAtomOptions<T>): RecoilState<T> {
 
   function mySet(
     store: Store,
-    initState: TreeState,
+    state: TreeState,
     newValue: T | DefaultValue,
   ): [TreeState, $ReadOnlySet<NodeKey>] {
-    const state = initAtom(store, initState, 'set');
+    initAtom(store, state, 'set');
 
     if (__DEV__) {
       if (options.dangerouslyAllowMutability !== true) {
