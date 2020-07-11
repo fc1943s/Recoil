@@ -5,14 +5,14 @@
  * LICENSE file in the root directory of this source tree.
  *
  * @emails oncall+recoil
- * @flow strict-local
+ * @flow strict
  * @format
  */
 
 'use strict';
 
-// @fb-only: const recoverableViolation = require('recoverableViolation');
+export type NodeKey = string;
+export type ComponentID = number;
+export type Version = number;
 
-const recoverableViolation = require('./polyfill/recoverableViolation.js'); // @oss-only
-
-module.exports = recoverableViolation;
+module.exports = ({}: {...});
