@@ -30,7 +30,7 @@ function mapBySettingInMap<K, V>(
   k: K,
   v: V,
 ): Map<K, V> {
-  const next = new Map(map);
+  const next = map;
   next.set(k, v);
   return next;
 }
