@@ -72,6 +72,7 @@ const {
 const cacheWithReferenceEquality = require('../caches/Recoil_cacheWithReferenceEquality');
 const {
   getNodeLoadable,
+  peekNodeLoadable,
   setNodeValue,
 } = require('../core/Recoil_FunctionalCore');
 const {
@@ -88,6 +89,7 @@ const {AbstractRecoilValue} = require('../core/Recoil_RecoilValue');
 const {
   getRecoilValueAsLoadable,
   isRecoilValue,
+  setRecoilValueLoadable,
 } = require('../core/Recoil_RecoilValueInterface');
 const deepFreezeValue = require('../util/Recoil_deepFreezeValue');
 const isPromise = require('../util/Recoil_isPromise');
@@ -125,14 +127,13 @@ type DepValues = Map<NodeKey, Loadable<mixed>>;
 // flowlint-next-line unclear-type:off
 const emptySet: $ReadOnlySet<any> = Object.freeze(new Set());
 
-const LOADING = {recoilDependencyLoadingPlaceholder: null};
-
 function cacheKeyFromDepValues(depValues: DepValues): CacheKey {
   const answer = [];
   for (const key of Array.from(depValues.keys()).sort()) {
     const loadable = nullthrows(depValues.get(key));
     answer.push(key);
-    answer.push(loadable.state === 'loading' ? LOADING : loadable.contents);
+    answer.push(loadable.state);
+    answer.push(loadable.contents);
   }
   return answer;
 }
@@ -183,9 +184,10 @@ function selector<T>(
               deepFreezeValue(result);
             }
           }
+          const newLoadable = loadableWithValue(result);
 
           // If the value is now resolved, then update the cache with the new value
-          cache = cache.set(cacheKey, loadableWithValue(result));
+          cache = cache.set(cacheKey, newLoadable);
 
           // TODO Potential optimization: I think this is updating the cache
           // with a cacheKey of the dep when it wasn't ready yet.  We could also
@@ -204,7 +206,13 @@ function selector<T>(
           // Fire subscriptions to re-render any subscribed components with the new value.
           // The store uses the CURRENT state, not the old state from which
           // this was called.  That state likely doesn't have the subscriptions saved yet.
-          store.fireNodeSubscriptions(new Set([key]), 'now');
+          // Note that we have to set the value for this key, not just notify
+          // components, so that there will be a new version for useMutableSource.
+          setRecoilValueLoadable(
+            store,
+            new AbstractRecoilValue(key),
+            newLoadable,
+          );
           return result;
         })
         .catch(error => {
@@ -220,8 +228,13 @@ function selector<T>(
           }
           // The async value was rejected with an error.  Update the cache with
           // the error and fire subscriptions to re-render.
-          cache = cache.set(cacheKey, loadableWithError(error));
-          store.fireNodeSubscriptions(new Set([key]), 'now');
+          const newLoadable = loadableWithError(error);
+          cache = cache.set(cacheKey, newLoadable);
+          setRecoilValueLoadable(
+            store,
+            new AbstractRecoilValue(key),
+            newLoadable,
+          );
           return error;
         });
     }
@@ -353,6 +366,30 @@ function selector<T>(
     }
   }
 
+  function myPeek(store: Store, state: TreeState): ?Loadable<T> {
+    // First, get the current deps for this selector
+    const currentDeps =
+      store.getGraph(state.version).nodeDeps.get(key) ?? emptySet;
+    const depValues: Map<NodeKey, ?Loadable<mixed>> = new Map(
+      Array.from(currentDeps)
+        .sort()
+        .map(depKey => [depKey, peekNodeLoadable(store, state, depKey)]),
+    );
+
+    const cacheDepValues = new Map();
+    for (const [depKey, depValue] of depValues.entries()) {
+      if (depValue == null) {
+        return undefined;
+      }
+      cacheDepValues.set(depKey, depValue);
+    }
+
+    // Always cache and evaluate a selector
+    // It may provide a result even when not all deps are available.
+    const cacheKey = cacheKeyFromDepValues(cacheDepValues);
+    return cache.get(cacheKey);
+  }
+
   function myGet(store: Store, state: TreeState): [DependencyMap, Loadable<T>] {
     initSelector(store);
     // TODO memoize a value if no deps have changed to avoid a cache lookup
@@ -420,15 +457,19 @@ function selector<T>(
     }
     return registerNode<T>({
       key,
-      options,
+      peek: myPeek,
       get: myGet,
       set: mySet,
+      dangerouslyAllowMutability: options.dangerouslyAllowMutability,
+      shouldRestoreFromSnapshots: false,
     });
   } else {
     return registerNode<T>({
       key,
-      options,
+      peek: myPeek,
       get: myGet,
+      dangerouslyAllowMutability: options.dangerouslyAllowMutability,
+      shouldRestoreFromSnapshots: false,
     });
   }
 }

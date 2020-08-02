@@ -4,8 +4,6 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * See https://our.intern.facebook.com/intern/wiki/Recoil/
- *
  * @emails oncall+recoil
  * @flow strict-local
  * @format
@@ -15,7 +13,6 @@
 export type {
   AtomEffect,
   PersistenceSettings,
-  PersistenceType,
 } from './recoil_values/Recoil_atom';
 export type {SetterOrUpdater} from './hooks/Recoil_Hooks';
 export type {Loadable} from './adt/Recoil_Loadable';
@@ -24,6 +21,7 @@ export type {
   SetRecoilState,
   ResetRecoilState,
 } from './recoil_values/Recoil_selector';
+export type {PersistenceType} from './core/Recoil_Node';
 export type {
   RecoilValue,
   RecoilState,

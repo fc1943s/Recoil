@@ -12,14 +12,14 @@
 
 import type {RecoilValue} from '../core/Recoil_RecoilValue';
 import type {MutableSnapshot} from '../core/Recoil_Snapshot';
-import type {NodeKey, Store, StoreRef, StoreState} from '../core/Recoil_State';
+import type {Store, StoreRef, StoreState} from '../core/Recoil_State';
 
 const React = require('React');
 const {useContext, useEffect, useRef, useState} = require('React');
 
 const Queue = require('../adt/Recoil_Queue');
 const {
-  fireNodeSubscriptions,
+  getDownstreamNodes,
   setNodeValue,
   setUnvalidatedAtomValue,
 } = require('../core/Recoil_FunctionalCore');
@@ -30,10 +30,10 @@ const {freshSnapshot} = require('../core/Recoil_Snapshot');
 const {
   getNextTreeStateVersion,
   makeEmptyStoreState,
-  makeStoreState,
 } = require('../core/Recoil_State');
 const {mapByDeletingMultipleFromMap} = require('../util/Recoil_CopyOnWrite');
 const nullthrows = require('../util/Recoil_nullthrows');
+const Tracing = require('../util/Recoil_Tracing');
 const unionSets = require('../util/Recoil_unionSets');
 
 type Props = {
@@ -57,7 +57,7 @@ const defaultStore: Store = Object.freeze({
   getGraph: notInAContext,
   subscribeToTransactions: notInAContext,
   addTransactionMetadata: notInAContext,
-  fireNodeSubscriptions: notInAContext,
+  mutableSource: null,
 });
 
 function startNextTreeIfNeeded(storeState: StoreState): void {
@@ -67,6 +67,7 @@ function startNextTreeIfNeeded(storeState: StoreState): void {
     storeState.nextTree = {
       ...storeState.currentTree,
       version: nextVersion,
+      stateID: nextVersion,
       dirtyAtoms: new Set(),
       transactionMetadata: {},
     };
@@ -79,6 +80,65 @@ function startNextTreeIfNeeded(storeState: StoreState): void {
 
 const AppContext = React.createContext<StoreRef>({current: defaultStore});
 const useStoreRef = (): StoreRef => useContext(AppContext);
+
+function sendEndOfBatchNotifications(store: Store) {
+  const storeState = store.getState();
+  const treeState = storeState.currentTree;
+
+  // Inform transaction subscribers of the transaction:
+  const dirtyAtoms = treeState.dirtyAtoms;
+  if (dirtyAtoms.size) {
+    // Execute Node-specific subscribers before global subscribers
+    for (const [
+      key,
+      subscriptions,
+    ] of storeState.nodeTransactionSubscriptions) {
+      if (dirtyAtoms.has(key)) {
+        for (const [_, subscription] of subscriptions) {
+          subscription(store);
+        }
+      }
+    }
+
+    for (const [_, subscription] of storeState.transactionSubscriptions) {
+      subscription(store);
+    }
+
+    // Components that are subscribed to the dirty atom:
+    const dependentNodes = getDownstreamNodes(store, treeState, dirtyAtoms);
+
+    for (const key of dependentNodes) {
+      const comps = storeState.nodeToComponentSubscriptions.get(key);
+      if (comps) {
+        for (const [_subID, [_debugName, callback]] of comps) {
+          callback(treeState);
+        }
+      }
+    }
+
+    // Wake all suspended components so the right one(s) can try to re-render.
+    // We need to wake up components not just when some asynchronous selector
+    // resolved, but also when changing synchronous values because this may cause
+    // a selector to change from asynchronous to synchronous, in which case there
+    // would be no follow-up asynchronous resolution to wake us up.
+    // TODO OPTIMIZATION Only wake up related downstream components
+    let nodeNames = '[available in dev build]';
+    if (__DEV__) {
+      nodeNames = Array.from(dirtyAtoms).join(', ');
+    }
+    storeState.suspendedComponentResolvers.forEach(cb =>
+      Tracing.trace('value became available, waking components', nodeNames, cb),
+    );
+  }
+
+  // Special behavior ONLY invoked by useInterface.
+  // FIXME delete queuedComponentCallbacks_DEPRECATED when deleting useInterface.
+  storeState.queuedComponentCallbacks_DEPRECATED.forEach(cb => cb(treeState));
+  storeState.queuedComponentCallbacks_DEPRECATED.splice(
+    0,
+    storeState.queuedComponentCallbacks_DEPRECATED.length,
+  );
+}
 
 /*
  * The purpose of the Batcher is to observe when React batches end so that
@@ -106,35 +166,9 @@ function Batcher(props: {setNotifyBatcherOfChange: (() => void) => void}) {
         return;
       }
 
-      // Inform transaction subscribers of the transaction:
-      const dirtyAtoms = nextTree.dirtyAtoms;
-      if (dirtyAtoms.size) {
-        // Execute Node-specific subscribers before global subscribers
-        for (const [
-          key,
-          subscriptions,
-        ] of storeState.nodeTransactionSubscriptions) {
-          if (dirtyAtoms.has(key)) {
-            for (const subscription of subscriptions) {
-              subscription(storeRef.current);
-            }
-          }
-        }
-        for (const [_, subscription] of storeState.transactionSubscriptions) {
-          subscription(storeRef.current);
-        }
-      }
-
-      // Inform components that depend on dirty atoms of the transaction:
-      // FIXME why is this StoreState but dirtyAtoms is TreeState? Seems like they should be the same.
-      storeState.queuedComponentCallbacks.forEach(cb => cb(nextTree));
-      storeState.queuedComponentCallbacks.splice(
-        0,
-        storeState.queuedComponentCallbacks.length,
-      );
-
       // nextTree is now committed -- note that copying and reset occurs when
       // a transaction begins, in startNextTreeIfNeeded:
+      storeState.previousTree = storeState.currentTree;
 
       // nextTree.nodeToComponentSubscriptions = new Map(
       //   nextTree.nodeToComponentSubscriptions,
@@ -150,6 +184,10 @@ function Batcher(props: {setNotifyBatcherOfChange: (() => void) => void}) {
         ),
       };
       storeState.nextTree = null;
+
+      sendEndOfBatchNotifications(storeRef.current);
+
+      storeState.previousTree = null;
     });
   });
 
@@ -201,7 +239,7 @@ function initialStoreState_DEPRECATED(store, initializeState): StoreState {
 
 function initialStoreState(initializeState): StoreState {
   const snapshot = freshSnapshot().map(initializeState);
-  return makeStoreState(snapshot.getStore_INTERNAL().getState().currentTree);
+  return snapshot.getStore_INTERNAL().getState();
 }
 
 let nextID = 0;
@@ -234,14 +272,24 @@ function RecoilRoot({
         },
       };
     } else {
-      // Node-specific transaction subscriptions from onSet() effect
+      // Node-specific transaction subscriptions:
       const {nodeTransactionSubscriptions} = storeRef.current.getState();
       if (!nodeTransactionSubscriptions.has(key)) {
-        nodeTransactionSubscriptions.set(key, []);
+        nodeTransactionSubscriptions.set(key, new Map());
       }
-      nullthrows(nodeTransactionSubscriptions.get(key)).push(callback);
-      // We don't currently support canceling onSet() handlers, but can if needed
-      return {release: () => {}};
+      const id = nextID++;
+      nullthrows(nodeTransactionSubscriptions.get(key)).set(id, callback);
+      return {
+        release: () => {
+          const subs = nodeTransactionSubscriptions.get(key);
+          if (subs) {
+            subs.delete(id);
+            if (subs.size === 0) {
+              nodeTransactionSubscriptions.delete(key);
+            }
+          }
+        },
+      };
     }
   };
 
@@ -252,13 +300,6 @@ function RecoilRoot({
         metadata[k];
     }
   };
-
-  function fireNodeSubscriptionsForStore(
-    updatedNodes: $ReadOnlySet<NodeKey>,
-    when: 'enqueue' | 'now',
-  ) {
-    fireNodeSubscriptions(storeRef.current, updatedNodes, when);
-  }
 
   const replaceState = replacer => {
     const storeState = storeRef.current.getState();
@@ -286,13 +327,23 @@ function RecoilRoot({
     notifyBatcherOfChange.current = x;
   }
 
+  // FIXME T2710559282599660
+  const createMutableSource =
+    (React: any).createMutableSource ?? // flowlint-line unclear-type:off
+    (React: any).unstable_createMutableSource; // flowlint-line unclear-type:off
+
   const store: Store = {
     getState: () => storeState.current,
     replaceState,
     getGraph,
     subscribeToTransactions,
     addTransactionMetadata,
-    fireNodeSubscriptions: fireNodeSubscriptionsForStore,
+    mutableSource: createMutableSource
+      ? createMutableSource(
+          storeState,
+          () => storeState.current.currentTree.version,
+        )
+      : null,
   };
   const storeRef = useRef(store);
   storeState = useRef(
@@ -314,4 +365,5 @@ function RecoilRoot({
 module.exports = {
   useStoreRef,
   RecoilRoot,
+  sendEndOfBatchNotifications_FOR_TESTING: sendEndOfBatchNotifications,
 };

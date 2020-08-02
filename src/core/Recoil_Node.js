@@ -30,8 +30,17 @@ class RecoilValueNotReady extends Error {
   }
 }
 
+export type PersistenceType = 'none' | 'url';
+export type PersistenceInfo = $ReadOnly<{
+  type: PersistenceType,
+  backButton?: boolean,
+}>;
+
 export type ReadOnlyNodeOptions<T> = $ReadOnly<{
   key: NodeKey,
+
+  // Returns the current value without evaluating or modifying state
+  peek: (Store, TreeState) => ?Loadable<T>,
 
   // Returns the discovered deps and the loadable value of the node
   get: (Store, TreeState) => [DependencyMap, Loadable<T>],
@@ -40,10 +49,10 @@ export type ReadOnlyNodeOptions<T> = $ReadOnly<{
   // in cases other than when `set` is called (when this will not be)
   invalidate?: () => void,
 
-  // Store the options for the observation hooks
-  // TODO Use proper Flow typing
-  // flowlint-next-line unclear-type:off
-  options: Object,
+  shouldRestoreFromSnapshots: boolean,
+
+  dangerouslyAllowMutability?: boolean,
+  persistence_UNSTABLE?: PersistenceInfo,
 }>;
 
 export type ReadWriteNodeOptions<T> = $ReadOnly<{
@@ -83,14 +92,14 @@ function registerNode<T>(node: Node<T>): RecoilValue<T> {
     // TODO Need to figure out if there is a standard/open-source equivalent to see if hot module replacement is happening:
     // prettier-ignore
     // @fb-only: if (__DEV__) {
-      // @fb-only: const isAcceptingUpdate = require('__debug').isAcceptingUpdate;
-      // prettier-ignore
-      // @fb-only: if (typeof isAcceptingUpdate !== 'function' || !isAcceptingUpdate()) {
-        // @fb-only: expectationViolation(message, 'recoil');
-      // @fb-only: }
+    // @fb-only: const isAcceptingUpdate = require('__debug').isAcceptingUpdate;
+    // prettier-ignore
+    // @fb-only: if (typeof isAcceptingUpdate !== 'function' || !isAcceptingUpdate()) {
+    // @fb-only: expectationViolation(message, 'recoil');
+    // @fb-only: }
     // prettier-ignore
     // @fb-only: } else {
-      recoverableViolation(message, 'recoil');
+    recoverableViolation(message, 'recoil');
     // @fb-only: }
   }
   nodes.set(node.key, node);
