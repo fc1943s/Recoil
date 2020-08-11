@@ -16,6 +16,8 @@ import type {Store, StoreRef, StoreState} from '../core/Recoil_State';
 
 const React = require('React');
 const {useContext, useEffect, useRef, useState} = require('React');
+// @fb-only: const RecoilUsageLogFalcoEvent = require('RecoilUsageLogFalcoEvent');
+// @fb-only: const URI = require('URI');
 
 const Queue = require('../adt/Recoil_Queue');
 const {
@@ -33,8 +35,10 @@ const {
 } = require('../core/Recoil_State');
 const {mapByDeletingMultipleFromMap} = require('../util/Recoil_CopyOnWrite');
 const nullthrows = require('../util/Recoil_nullthrows');
+// @fb-only: const recoverableViolation = require('../util/Recoil_recoverableViolation');
 const Tracing = require('../util/Recoil_Tracing');
 const unionSets = require('../util/Recoil_unionSets');
+// @fb-only: const gkx = require('gkx');
 
 type Props = {
   initializeState_DEPRECATED?: ({
@@ -248,6 +252,23 @@ function RecoilRoot({
   initializeState,
   children,
 }: Props): ReactElement {
+  // prettier-ignore
+  // @fb-only: useEffect(() => {
+    // @fb-only: if (gkx('recoil_usage_logging')) {
+      // @fb-only: try {
+        // @fb-only: RecoilUsageLogFalcoEvent.log(() => ({
+          // @fb-only: type: 'RECOIL_ROOT_MOUNTED',
+          // @fb-only: path: URI.getRequestURI().getPath(),
+        // @fb-only: }));
+      // @fb-only: } catch {
+        // @fb-only: recoverableViolation(
+          // @fb-only: 'Error when logging Recoil Usage event',
+          // @fb-only: 'recoil',
+        // @fb-only: );
+      // @fb-only: }
+    // @fb-only: }
+  // @fb-only: }, []);
+
   let storeState; // eslint-disable-line prefer-const
 
   const getGraph = version => {
