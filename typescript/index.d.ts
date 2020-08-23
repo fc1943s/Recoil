@@ -6,6 +6,8 @@
 
 export {};
 
+import * as React from 'react';
+
 // state.d.ts
 type NodeKey = string;
 type AtomValues = Map<NodeKey, Loadable<any>>;
@@ -27,8 +29,6 @@ export class DefaultValue {
 }
 
 // recoilRoot.d.ts
-import * as React from 'react';
-
 export interface RecoilRootProps {
   initializeState?: (mutableSnapshot: MutableSnapshot) => void;
 }
@@ -164,6 +164,10 @@ export function useRecoilTransactionObserver_UNSTABLE(
 export function useGotoRecoilSnapshot(): (snapshot: Snapshot) => void;
 
 export function useRecoilSnapshot(): Snapshot;
+
+// useRecoilBridgeAcrossReactRoots.d.ts
+export const RecoilBridge: React.FC<{}>;
+export function useRecoilBridgeAcrossReactRoots_UNSTABLE(): RecoilBridge;
 
 // loadable.d.ts
 type ResolvedLoadablePromiseInfo<T> = Readonly<{

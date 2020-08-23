@@ -15,7 +15,8 @@ import type {MutableSnapshot} from '../core/Recoil_Snapshot';
 import type {Store, StoreRef, StoreState} from '../core/Recoil_State';
 
 const React = require('React');
-const {useContext, useEffect, useRef, useState} = require('React');
+const {useContext, useEffect, useMemo, useRef, useState} = require('React');
+// @fb-only: const RecoilusagelogEvent = require('RecoilusagelogEvent');
 // @fb-only: const RecoilUsageLogFalcoEvent = require('RecoilUsageLogFalcoEvent');
 // @fb-only: const URI = require('URI');
 
@@ -46,6 +47,7 @@ type Props = {
     setUnvalidatedAtomValues: (Map<string, mixed>) => void,
   }) => void,
   initializeState?: MutableSnapshot => void,
+  store_INTERNAL?: Store,
   children: React.Node,
 };
 
@@ -61,7 +63,6 @@ const defaultStore: Store = Object.freeze({
   getGraph: notInAContext,
   subscribeToTransactions: notInAContext,
   addTransactionMetadata: notInAContext,
-  mutableSource: null,
 });
 
 function startNextTreeIfNeeded(storeState: StoreState): void {
@@ -84,6 +85,9 @@ function startNextTreeIfNeeded(storeState: StoreState): void {
 
 const AppContext = React.createContext<StoreRef>({current: defaultStore});
 const useStoreRef = (): StoreRef => useContext(AppContext);
+
+const MutableSourceContext = React.createContext<mixed>(null); // TODO T2710559282599660
+const useRecoilMutableSource = (): mixed => useContext(MutableSourceContext);
 
 function sendEndOfBatchNotifications(store: Store) {
   const storeState = store.getState();
@@ -250,6 +254,7 @@ let nextID = 0;
 function RecoilRoot({
   initializeState_DEPRECATED,
   initializeState,
+  store_INTERNAL: storeProp, // For use with React "context bridging"
   children,
 }: Props): ReactElement {
   // prettier-ignore
@@ -257,7 +262,7 @@ function RecoilRoot({
     // @fb-only: if (gkx('recoil_usage_logging')) {
       // @fb-only: try {
         // @fb-only: RecoilUsageLogFalcoEvent.log(() => ({
-          // @fb-only: type: 'RECOIL_ROOT_MOUNTED',
+          // @fb-only: type: RecoilusagelogEvent.RECOIL_ROOT_MOUNTED,
           // @fb-only: path: URI.getRequestURI().getPath(),
         // @fb-only: }));
       // @fb-only: } catch {
@@ -353,19 +358,14 @@ function RecoilRoot({
     (React: any).createMutableSource ?? // flowlint-line unclear-type:off
     (React: any).unstable_createMutableSource; // flowlint-line unclear-type:off
 
-  const store: Store = {
+  const store: Store = storeProp ?? {
     getState: () => storeState.current,
     replaceState,
     getGraph,
     subscribeToTransactions,
     addTransactionMetadata,
-    mutableSource: createMutableSource
-      ? createMutableSource(
-          storeState,
-          () => storeState.current.currentTree.version,
-        )
-      : null,
   };
+
   const storeRef = useRef(store);
   storeState = useRef(
     initializeState_DEPRECATED != null
@@ -375,16 +375,30 @@ function RecoilRoot({
       : makeEmptyStoreState(),
   );
 
+  const mutableSource = useMemo(
+    () =>
+      createMutableSource
+        ? createMutableSource(
+            storeState,
+            () => storeState.current.currentTree.version,
+          )
+        : null,
+    [createMutableSource, storeState],
+  );
+
   return (
     <AppContext.Provider value={storeRef}>
-      <Batcher setNotifyBatcherOfChange={setNotifyBatcherOfChange} />
-      {children}
+      <MutableSourceContext.Provider value={mutableSource}>
+        <Batcher setNotifyBatcherOfChange={setNotifyBatcherOfChange} />
+        {children}
+      </MutableSourceContext.Provider>
     </AppContext.Provider>
   );
 }
 
 module.exports = {
   useStoreRef,
+  useRecoilMutableSource,
   RecoilRoot,
   sendEndOfBatchNotifications_FOR_TESTING: sendEndOfBatchNotifications,
 };

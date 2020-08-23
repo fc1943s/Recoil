@@ -196,6 +196,12 @@ useRecoilCallback(({ snapshot, set, reset, gotoSnapshot }) => async () => {
   useRecoilSnapshot(); // $ExpectType Snapshot
 }
 
+// useRecoilBridgeAcrossReactRoots()
+const RecoilBridge: RecoilBridge = useRecoilBridgeAcrossReactRoots_UNSTABLE();
+RecoilBridge({});
+RecoilBridge({initializeState: () => {}}); // $ExpectError
+
+
 // Other
 isRecoilValue(4);
 isRecoilValue(myAtom);
