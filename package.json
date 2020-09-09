@@ -1,6 +1,6 @@
 {
   "name": "recoil",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "Recoil - A state management library for React",
   "main": "cjs/recoil.js",
   "module": "es/recoil.js",
@@ -15,8 +15,7 @@
   "license": "MIT",
   "scripts": {
     "prepare": "install-peers",
-    "build:flow": "gen-flow-files src --out-dir lib && mv lib/Recoil_index.js.flow lib/recoil.js.flow",
-    "build": "rollup -c && node scripts/postbuild.js && yarn build:flow",
+    "build": "rollup -c && node scripts/postbuild.js",
     "test": "jest src/*",
     "format": "prettier --write \"./**/*.{js,md,json}\"",
     "flow": "flow --show-all-errors",
@@ -77,8 +76,7 @@
       "/node_modules/",
       "src/hooks/__tests__/Recoil_PublicHooks-test.js",
       "src/hooks/__tests__/Recoil_useRecoilCallback-test.js",
-      "src/recoil_values/__tests__/Recoil_atomFamily-test.js",
-      "src/recoil_values/__tests__/Recoil_selector-test.js"
+      "src/recoil_values/__tests__/Recoil_atomFamily-test.js"
     ],
     "setupFiles": [
       "./setupJestMock.js"

@@ -314,39 +314,49 @@ function selector<T>(
       const output = get({get: getRecoilValue});
       // TODO Allow user to also return Loadables for improved composability
       const result = isRecoilValue(output) ? getRecoilValue(output) : output;
-      const loadable: Loadable<T> = !isPromise(result)
-        ? // The selector returned a simple synchronous value, so let's use it!
-          (endPerfBlock(), loadableWithValue<T>(result))
-        : // The user returned a promise for an asynchronous selector.  This will
-          // resolve to the proper value of the selector when available.
-          loadableWithPromise<T>((result: $FlowFixMe).finally(endPerfBlock));
+      let loadable: Loadable<T>;
+      if (!isPromise(result)) {
+        // The selector returned a simple synchronous value, so let's use it!
+        endPerfBlock();
+        loadable = loadableWithValue<T>(result);
+      } else {
+        // The user returned a promise for an asynchronous selector.  This will
+        // resolve to the proper value of the selector when available.
+        loadable = loadableWithPromise<T>(
+          (result: $FlowFixMe).finally(endPerfBlock),
+        );
+      }
       return [dependencyMap, loadable, depValues];
     } catch (errorOrDepPromise) {
+      // XXX why was this changed to not use isPromise?
       const isP = errorOrDepPromise.then !== undefined;
-      const loadable = !isP
-        ? // There was a synchronous error in the evaluation
-          (endPerfBlock(), loadableWithError(errorOrDepPromise))
-        : // If an asynchronous dependency was not ready, then return a promise that
-          // will resolve when we finally do have a real value or error for the selector.
-          loadableWithPromise(
-            errorOrDepPromise
-              .then(() => {
-                // Now that its deps are ready, re-evaluate the selector (and
-                // record any newly-discovered dependencies in the Store):
-                const loadable = getRecoilValueAsLoadable(
-                  store,
-                  new AbstractRecoilValue(key),
-                );
-                if (loadable.state === 'hasError') {
-                  throw loadable.contents;
-                }
-                // Either the re-try provided a value, which we will use, or it
-                // got blocked again.  In that case this is a promise and we'll try again.
-                return loadable.contents;
-              })
-              .finally(endPerfBlock),
-          );
-
+      let loadable: Loadable<T>;
+      if (!isP) {
+        // There was a synchronous error in the evaluation
+        endPerfBlock();
+        loadable = loadableWithError(errorOrDepPromise);
+      } else {
+        // If an asynchronous dependency was not ready, then return a promise that
+        // will resolve when we finally do have a real value or error for the selector.
+        loadable = loadableWithPromise(
+          errorOrDepPromise
+            .then(() => {
+              // Now that its deps are ready, re-evaluate the selector (and
+              // record any newly-discovered dependencies in the Store):
+              const loadable = getRecoilValueAsLoadable(
+                store,
+                new AbstractRecoilValue(key),
+              );
+              if (loadable.state === 'hasError') {
+                throw loadable.contents;
+              }
+              // Either the re-try provided a value, which we will use, or it
+              // got blocked again.  In that case this is a promise and we'll try again.
+              return loadable.contents;
+            })
+            .finally(endPerfBlock),
+        );
+      }
       return [dependencyMap, loadable, depValues];
     }
   }
