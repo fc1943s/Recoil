@@ -40,6 +40,7 @@ const {
   flushPromisesAndTimers,
 } = require('../../testing/Recoil_TestingUtils');
 const {DefaultValue} = require('../../core/Recoil_Node');
+const {mutableSourceExists} = require('../../util/Recoil_mutableSource');
 
 let store;
 beforeEach(() => {
@@ -767,7 +768,8 @@ describe('Async selector resolution notifies all stores that read pending', () =
     expect(c.textContent).toEqual('loading');
 
     act(() => resolve('bar'));
-    await flushPromisesAndTimers();
+    await act(flushPromisesAndTimers);
+    await act(flushPromisesAndTimers);
     expect(c.textContent).toEqual('bar');
   });
 
@@ -779,7 +781,7 @@ describe('Async selector resolution notifies all stores that read pending', () =
     });
     const selectorA = selector({
       key: 'notifiesAllStores/twoRoots/a',
-      get: () => 'foo',
+      get: () => 'SELECTOR A',
     });
     let resolve = _ => {
       throw new Error('error in test');
@@ -792,34 +794,50 @@ describe('Async selector resolution notifies all stores that read pending', () =
         }),
     });
 
-    const switches = [];
-
-    function TestComponent() {
+    function TestComponent({
+      setSwitch,
+    }: {
+      setSwitch: ((boolean) => void) => void,
+    }) {
       const [shouldQuery, setShouldQuery] = useRecoilState(switchAtom);
       const query = useRecoilValueLoadable(shouldQuery ? selectorB : selectorA);
-      switches.push(setShouldQuery);
+      setSwitch(setShouldQuery);
       return query.state === 'hasValue' ? query.contents : 'loading';
     }
 
-    const rootA = renderElements(<TestComponent />);
-    const rootB = renderElements(<TestComponent />);
+    let setRootASelector;
+    const rootA = renderElements(
+      <TestComponent
+        setSwitch={setSelector => {
+          setRootASelector = setSelector;
+        }}
+      />,
+    );
+    let setRootBSelector;
+    const rootB = renderElements(
+      <TestComponent
+        setSwitch={setSelector => {
+          setRootBSelector = setSelector;
+        }}
+      />,
+    );
 
-    expect(rootA.textContent).toEqual('foo');
-    expect(rootB.textContent).toEqual('foo');
+    if (mutableSourceExists()) {
+      expect(rootA.textContent).toEqual('SELECTOR A');
+      expect(rootB.textContent).toEqual('SELECTOR A');
 
-    expect(switches.length).toEqual(2);
+      act(() => setRootASelector(true)); // cause rootA to read the selector
+      expect(rootA.textContent).toEqual('loading');
+      expect(rootB.textContent).toEqual('SELECTOR A');
 
-    act(() => switches[0](true)); // cause rootA to read the selector
-    expect(rootA.textContent).toEqual('loading');
-    expect(rootB.textContent).toEqual('foo');
+      act(() => setRootBSelector(true)); // cause rootB to read the selector
+      expect(rootA.textContent).toEqual('loading');
+      expect(rootB.textContent).toEqual('loading');
 
-    act(() => switches[1](true)); // cause rootB to read the selector
-    expect(rootA.textContent).toEqual('loading');
-    expect(rootB.textContent).toEqual('loading');
-
-    act(() => resolve('bar'));
-    await flushPromisesAndTimers();
-    expect(rootA.textContent).toEqual('bar');
-    expect(rootB.textContent).toEqual('bar');
+      act(() => resolve('SELECTOR B'));
+      await flushPromisesAndTimers();
+      expect(rootA.textContent).toEqual('SELECTOR B');
+      expect(rootB.textContent).toEqual('SELECTOR B');
+    }
   });
 });

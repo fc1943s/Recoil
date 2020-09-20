@@ -65,7 +65,14 @@ const defaultStore: Store = Object.freeze({
   addTransactionMetadata: notInAContext,
 });
 
+let stateReplacerIsBeingExecuted: boolean = false;
+
 function startNextTreeIfNeeded(storeState: StoreState): void {
+  if (stateReplacerIsBeingExecuted) {
+    throw new Error(
+      'An atom update was triggered within the execution of a state updater function. State updater functions provided to Recoil must be pure functions.',
+    );
+  }
   if (storeState.nextTree === null) {
     const version = storeState.currentTree.version;
     const nextVersion = getNextTreeStateVersion();
@@ -261,19 +268,19 @@ function RecoilRoot({
 }: Props): ReactElement {
   // prettier-ignore
   // @fb-only: useEffect(() => {
-    // @fb-only: if (gkx('recoil_usage_logging')) {
-      // @fb-only: try {
-        // @fb-only: RecoilUsageLogFalcoEvent.log(() => ({
-          // @fb-only: type: RecoilusagelogEvent.RECOIL_ROOT_MOUNTED,
-          // @fb-only: path: URI.getRequestURI().getPath(),
-        // @fb-only: }));
-      // @fb-only: } catch {
-        // @fb-only: recoverableViolation(
-          // @fb-only: 'Error when logging Recoil Usage event',
-          // @fb-only: 'recoil',
-        // @fb-only: );
-      // @fb-only: }
-    // @fb-only: }
+  // @fb-only: if (gkx('recoil_usage_logging')) {
+  // @fb-only: try {
+  // @fb-only: RecoilUsageLogFalcoEvent.log(() => ({
+  // @fb-only: type: RecoilusagelogEvent.RECOIL_ROOT_MOUNTED,
+  // @fb-only: path: URI.getRequestURI().getPath(),
+  // @fb-only: }));
+  // @fb-only: } catch {
+  // @fb-only: recoverableViolation(
+  // @fb-only: 'Error when logging Recoil Usage event',
+  // @fb-only: 'recoil',
+  // @fb-only: );
+  // @fb-only: }
+  // @fb-only: }
   // @fb-only: }, []);
 
   let storeState; // eslint-disable-line prefer-const
@@ -334,7 +341,13 @@ function RecoilRoot({
     startNextTreeIfNeeded(storeState);
     // Use replacer to get the next state:
     const nextTree = nullthrows(storeState.nextTree);
-    const replaced = replacer(nextTree);
+    let replaced;
+    try {
+      stateReplacerIsBeingExecuted = true;
+      replaced = replacer(nextTree);
+    } finally {
+      stateReplacerIsBeingExecuted = false;
+    }
     if (replaced === nextTree) {
       return;
     }

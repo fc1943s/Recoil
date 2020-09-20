@@ -99,8 +99,9 @@ function registerNode<T>(node: Node<T>): RecoilValue<T> {
     // @fb-only: }
     // prettier-ignore
     // @fb-only: } else {
-    recoverableViolation(message, 'recoil');
+    // @fb-only: recoverableViolation(message, 'recoil');
     // @fb-only: }
+    console.warn(message); // @oss-only
   }
   nodes.set(node.key, node);
 

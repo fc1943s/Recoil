@@ -19,7 +19,6 @@ import type {NodeKey, Store, TreeState} from '../core/Recoil_State';
 
 const React = require('React');
 const {useCallback, useEffect, useMemo, useRef, useState} = require('React');
-const ReactDOM = require('ReactDOM');
 
 const {DEFAULT_VALUE, getNode, nodes} = require('../core/Recoil_Node');
 const {
@@ -36,6 +35,7 @@ const {
   subscribeToRecoilValue,
 } = require('../core/Recoil_RecoilValueInterface');
 const {Snapshot, cloneSnapshot} = require('../core/Recoil_Snapshot');
+const {batchUpdates} = require('../util/Recoil_batcher');
 const {setByAddingToSet} = require('../util/Recoil_CopyOnWrite');
 const differenceSets = require('../util/Recoil_differenceSets');
 const expectationViolation = require('../util/Recoil_expectationViolation');
@@ -44,6 +44,10 @@ const filterSet = require('../util/Recoil_filterSet');
 const invariant = require('../util/Recoil_invariant');
 const mapMap = require('../util/Recoil_mapMap');
 const mergeMaps = require('../util/Recoil_mergeMaps');
+const {
+  mutableSourceExists,
+  useMutableSource,
+} = require('../util/Recoil_mutableSource');
 const nullthrows = require('../util/Recoil_nullthrows');
 const recoverableViolation = require('../util/Recoil_recoverableViolation');
 const Tracing = require('../util/Recoil_Tracing');
@@ -260,9 +264,7 @@ function useRecoilInterface_DEPRECATED(): RecoilInterface {
   }, [recoilValuesUsed, storeRef]);
 }
 
-if (__DEV__) {
-  window.$recoilComponentGetRecoilValueCount_FOR_TESTING = 0;
-}
+const recoilComponentGetRecoilValueCount_FOR_TESTING = {current: 0};
 
 function useRecoilValueLoadable_MUTABLESOURCE<T>(
   recoilValue: RecoilValue<T>,
@@ -274,7 +276,7 @@ function useRecoilValueLoadable_MUTABLESOURCE<T>(
 
   const getValue = useCallback(() => {
     if (__DEV__) {
-      window.$recoilComponentGetRecoilValueCount_FOR_TESTING++;
+      recoilComponentGetRecoilValueCount_FOR_TESTING.current++;
     }
     return getRecoilValueAsLoadable(
       storeRef.current,
@@ -350,16 +352,12 @@ function useRecoilValueLoadable_LEGACY<T>(
   return getRecoilValueAsLoadable(storeRef.current, recoilValue);
 }
 
-// FIXME T2710559282599660
-const useMutableSource =
-  (React: any).useMutableSource ?? (React: any).unstable_useMutableSource; // flowlint-line unclear-type:off
-
 /**
   Like useRecoilValue(), but either returns the value if available or
   just undefined if not available for any reason, such as pending or error.
 */
 function useRecoilValueLoadable<T>(recoilValue: RecoilValue<T>): Loadable<T> {
-  if (useMutableSource && !window.disableRecoilValueMutableSource) {
+  if (mutableSourceExists()) {
     // eslint-disable-next-line fb-www/react-hooks
     return useRecoilValueLoadable_MUTABLESOURCE(recoilValue);
   } else {
@@ -595,7 +593,7 @@ function useGotoRecoilSnapshot(): Snapshot => void {
       const storeState = storeRef.current.getState();
       const prev = storeState.nextTree ?? storeState.currentTree;
       const next = snapshot.getStore_INTERNAL().getState().currentTree;
-      ReactDOM.unstable_batchedUpdates(() => {
+      batchUpdates(() => {
         const keysToUpdate = new Set();
         for (const keys of [prev.atomValues.keys(), next.atomValues.keys()]) {
           for (const key of keys) {
@@ -635,7 +633,7 @@ function useSetUnvalidatedAtomValues(): (
 ) => void {
   const storeRef = useStoreRef();
   return (values: Map<NodeKey, mixed>, transactionMetadata: {...} = {}) => {
-    ReactDOM.unstable_batchedUpdates(() => {
+    batchUpdates(() => {
       storeRef.current.addTransactionMetadata(transactionMetadata);
       values.forEach((value, key) =>
         setUnvalidatedRecoilValue(
@@ -682,13 +680,13 @@ function useRecoilCallback<Args: $ReadOnlyArray<mixed>, Return>(
       }
 
       let ret = SENTINEL;
-      ReactDOM.unstable_batchedUpdates(() => {
+      batchUpdates(() => {
         // flowlint-next-line unclear-type:off
         ret = (fn: any)({set, reset, snapshot, gotoSnapshot})(...args);
       });
       invariant(
         !(ret instanceof Sentinel),
-        'unstable_batchedUpdates should return immediately',
+        'batchUpdates should return immediately',
       );
       return (ret: Return);
     },
@@ -697,18 +695,19 @@ function useRecoilCallback<Args: $ReadOnlyArray<mixed>, Return>(
 }
 
 module.exports = {
+  recoilComponentGetRecoilValueCount_FOR_TESTING,
+  useGotoRecoilSnapshot,
   useRecoilCallback,
-  useRecoilValue,
-  useRecoilValueLoadable,
+  useRecoilInterface: useRecoilInterface_DEPRECATED,
+  useRecoilSnapshot,
   useRecoilState,
   useRecoilStateLoadable,
-  useSetRecoilState,
-  useResetRecoilState,
-  useRecoilInterface: useRecoilInterface_DEPRECATED,
-  useTransactionSubscription_DEPRECATED: useTransactionSubscription,
-  useTransactionObservation_DEPRECATED,
   useRecoilTransactionObserver,
-  useRecoilSnapshot,
-  useGotoRecoilSnapshot,
+  useRecoilValue,
+  useRecoilValueLoadable,
+  useResetRecoilState,
+  useSetRecoilState,
   useSetUnvalidatedAtomValues,
+  useTransactionObservation_DEPRECATED,
+  useTransactionSubscription_DEPRECATED: useTransactionSubscription,
 };
